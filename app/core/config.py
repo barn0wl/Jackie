@@ -5,15 +5,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Settings:
-    """Global application configuration."""
-
-    # Path to store the Chroma vector database
     CHROMA_PATH = os.getenv("CHROMA_PATH", "data/chromadb")
-    # Ollama model for LLM inference
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral")
-    # Embedding model (local)
+
+    # Ollama connection + defaults
+    OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral")  # e.g. mistral, llama3, qwen2
+    OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", 8192))
+    OLLAMA_TEMPERATURE = float(os.getenv("OLLAMA_TEMPERATURE", 0.2))
+
+    # Embeddings (local)
     EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-base")
-    # Chunking configuration
+
+    # Chunking
     CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 800))
     CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 100))
 
