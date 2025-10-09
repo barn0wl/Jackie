@@ -20,3 +20,6 @@ venv/
 *.db
 *.db-shm
 *.db-wal
+
+# Ignore Chroma vector store
+data/chromadb/

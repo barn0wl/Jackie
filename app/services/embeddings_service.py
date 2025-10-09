@@ -22,12 +22,3 @@ class EmbeddingsService:
         """Batch generate embeddings for a list of strings."""
         return self.model.encode(texts, normalize_embeddings=True).tolist()
 
-# --- Quick test harness ---
-if __name__ == "__main__":
-    embedder = EmbeddingsService()
-    text = "Les remboursements sont traités sous 30 jours."
-    embedding = embedder.embed_text(text)
-
-    print(f"Model: {embedder.model_name}")
-    print(f"Embedding length: {len(embedding)} dimensions")
-    print(f"Embedding preview: {embedding[:8]}")
