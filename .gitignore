@@ -1,14 +1,22 @@
-# Ignorer le dossier downloads
-downloads/
+# Python bytecode files
+__pycache__/
+*.py[cod]
+*$py.class
 
-# Ignorer test.py à la racine
-/test.py
-
-# Ignorer jackie.zip à la racine
-/jackie.zip
-
-# Ignorer le dossier venv
+# Virtual environment folders
+env/
 venv/
+.venv/
 
-# Ignorer le fichier .env
+# Environment files
 .env
+*.env
+
+# VSCode project settings
+.vscode/
+
+# Database files (SQLite, etc.)
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
