@@ -3,7 +3,7 @@ import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from app.services.retriever_service import RetrieverService
-from app.services.llm_service import LLMService
+from app.services.llm.factory import LLMServiceFactory
 
 def main():
     query = "Quels sont les délais de remboursement ?"
@@ -11,7 +11,7 @@ def main():
     print("🔍 Initializing services...")
     try:
         retriever = RetrieverService(top_k=3)
-        llm = LLMService()  # uses settings.OLLAMA_MODEL
+        llm = LLMServiceFactory.create()
     except Exception as e:
         print(f"❌ Failed to initialize services: {e}")
         return

@@ -7,6 +7,8 @@ load_dotenv()
 class Settings:
     CHROMA_PATH = os.getenv("CHROMA_PATH", "data/chromadb")
 
+    LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")  # ollama / openai / groq
+
     # Ollama connection + defaults
     OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral")  # e.g. mistral, llama3, qwen2
