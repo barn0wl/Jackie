@@ -1,6 +1,6 @@
 # app/services/llm_service.py
 
-from typing import Dict, Generator, Iterable, Optional
+from typing import Dict, Generator, Optional
 import logging
 
 from app.core.config import settings
