@@ -1,19 +1,18 @@
-# app/services/llm_service.py
-
 from typing import Dict, Generator, Optional
 import logging
 
 from app.core.config import settings
 
 try:
-    # pip install ollama
     import ollama
+    from ollama._types import ChatResponse, GenerateResponse
 except ImportError as e:
     raise RuntimeError(
         "The 'ollama' package is required. Install with: pip install ollama"
     ) from e
 
 logger = logging.getLogger(__name__)
+
 
 class LLMService:
     """
@@ -58,7 +57,6 @@ class LLMService:
             "Si une information est manquante ou incertaine, dis clairement que tu ne sais pas."
         )
 
-        # Keep context as-is; caller should ensure it fits (truncate upstream if needed)
         context_block = (
             "----- CONTEXTE -----\n"
             f"{context.strip()}\n"
@@ -80,20 +78,8 @@ class LLMService:
         """
         One-shot non-streaming answer. Returns the final text.
         Uses stream=False for a single complete response.
-        
-        Response format (stream=False):
-        {
-            "model": "mistral:latest",
-            "created_at": "...",
-            "response": "The full answer text here...",
-            "done": true,
-            "context": [...],
-            "total_duration": ...,
-            ...
-        }
         """
         messages = self._build_messages(query, context)
-        
         try:
             resp = self.client.chat(
                 model=self.model_name,
@@ -102,41 +88,35 @@ class LLMService:
                     "temperature": self.temperature,
                     "num_ctx": self.num_ctx,
                 },
-                stream=False,  # Get complete response in one call
+                stream=False,
             )
-        except Exception as e:
+        except Exception:
             logger.exception("Ollama chat call failed")
             raise
 
-        # When stream=False, the response is in the "response" key
+        # Handle different return types
+        text = ""
         if isinstance(resp, dict):
-            text = resp.get("response", "")
+            text = resp.get("response") or resp.get("message", {}).get("content", "")
+        elif isinstance(resp, ChatResponse):
+            text = getattr(resp.message, "content", "") or ""
+        elif isinstance(resp, GenerateResponse):
+            text = getattr(resp, "response", "") or ""
         else:
             logger.warning(f"Unexpected response type: {type(resp)}")
-            text = ""
-        
+
         if not text:
             logger.warning("LLM returned empty response")
         else:
-            logger.debug(f"LLM response length: {len(text)} characters")
-        
+            logger.debug(f"LLM response: {text[:80]}...")
         return text.strip()
 
     def stream_answer(self, query: str, context: str) -> Generator[str, None, None]:
         """
         Streaming generator that yields text chunks as they arrive from Ollama.
         Uses stream=True for incremental responses.
-        
-        Response format (stream=True):
-        Each chunk: {"model": "...", "created_at": "...", "response": "chunk", "done": false}
-        Final chunk: {"model": "...", "created_at": "...", "response": "", "done": true}
-        
-        Usage:
-            for chunk in llm_service.stream_answer(query, context):
-                print(chunk, end="", flush=True)
         """
         messages = self._build_messages(query, context)
-        
         try:
             stream = self.client.chat(
                 model=self.model_name,
@@ -145,16 +125,18 @@ class LLMService:
                     "temperature": self.temperature,
                     "num_ctx": self.num_ctx,
                 },
-                stream=True,  # Get streaming response
+                stream=True,
             )
-            
             for part in stream:
-                # When stream=True, each part has "response" key with a chunk
+                # Streaming chunks may be dicts or ChatResponse objects
                 if isinstance(part, dict):
-                    content = part.get("response", "")
-                    if content:
-                        yield content
-                        
-        except Exception as e:
+                    content = part.get("response", "") or part.get("message", {}).get("content", "")
+                elif isinstance(part, ChatResponse):
+                    content = getattr(part.message, "content", "") or ""
+                else:
+                    content = ""
+                if content:
+                    yield content
+        except Exception:
             logger.exception("Ollama streaming chat failed")
             raise
