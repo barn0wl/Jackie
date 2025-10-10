@@ -52,7 +52,7 @@ class LLMService:
         """
         system_prompt = (
             "Tu es un assistant et un agent de recherche et raisonnement nommé Jackie. "
-            "Tu travailles pour une entreprise nommée Les Centaures Routiers."
+            "Tu travailles pour une entreprise nommée Les Centaures Routiers. "
             "Réponds de manière concise, factuelle et polie, en FRANÇAIS. "
             "Utilise UNIQUEMENT les informations du CONTEXTE ci-dessous. "
             "Si une information est manquante ou incertaine, dis clairement que tu ne sais pas."
@@ -79,8 +79,21 @@ class LLMService:
     def generate_answer(self, query: str, context: str) -> str:
         """
         One-shot non-streaming answer. Returns the final text.
+        Uses stream=False for a single complete response.
+        
+        Response format (stream=False):
+        {
+            "model": "mistral:latest",
+            "created_at": "...",
+            "response": "The full answer text here...",
+            "done": true,
+            "context": [...],
+            "total_duration": ...,
+            ...
+        }
         """
         messages = self._build_messages(query, context)
+        
         try:
             resp = self.client.chat(
                 model=self.model_name,
@@ -89,22 +102,41 @@ class LLMService:
                     "temperature": self.temperature,
                     "num_ctx": self.num_ctx,
                 },
+                stream=False,  # Get complete response in one call
             )
         except Exception as e:
             logger.exception("Ollama chat call failed")
             raise
 
-        text = resp.get("message", {}).get("content", "") if isinstance(resp, dict) else ""
+        # When stream=False, the response is in the "response" key
+        if isinstance(resp, dict):
+            text = resp.get("response", "")
+        else:
+            logger.warning(f"Unexpected response type: {type(resp)}")
+            text = ""
+        
+        if not text:
+            logger.warning("LLM returned empty response")
+        else:
+            logger.debug(f"LLM response length: {len(text)} characters")
+        
         return text.strip()
 
     def stream_answer(self, query: str, context: str) -> Generator[str, None, None]:
         """
         Streaming generator that yields text chunks as they arrive from Ollama.
+        Uses stream=True for incremental responses.
+        
+        Response format (stream=True):
+        Each chunk: {"model": "...", "created_at": "...", "response": "chunk", "done": false}
+        Final chunk: {"model": "...", "created_at": "...", "response": "", "done": true}
+        
         Usage:
             for chunk in llm_service.stream_answer(query, context):
                 print(chunk, end="", flush=True)
         """
         messages = self._build_messages(query, context)
+        
         try:
             stream = self.client.chat(
                 model=self.model_name,
@@ -113,13 +145,16 @@ class LLMService:
                     "temperature": self.temperature,
                     "num_ctx": self.num_ctx,
                 },
-                stream=True,
+                stream=True,  # Get streaming response
             )
+            
             for part in stream:
-                # part is a dict like {"message":{"role":"assistant","content":"..."}, "done": bool, ...}
-                content = part.get("message", {}).get("content", "")
-                if content:
-                    yield content
+                # When stream=True, each part has "response" key with a chunk
+                if isinstance(part, dict):
+                    content = part.get("response", "")
+                    if content:
+                        yield content
+                        
         except Exception as e:
             logger.exception("Ollama streaming chat failed")
             raise
