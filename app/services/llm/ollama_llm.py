@@ -1,7 +1,9 @@
+# app/services/llm/ollama_llm.py
 from typing import Dict, Generator, Optional
 import logging
 
 from app.core.config import settings
+from app.services.llm.base_llm import LLMBase
 
 try:
     import ollama
@@ -13,13 +15,11 @@ except ImportError as e:
 
 logger = logging.getLogger(__name__)
 
-
-class LLMService:
+class OllamaLLMService(LLMBase):
     """
+    Ollama implementation of the LLM service.
     Thin wrapper around Ollama's chat API.
     - Answers in French by default.
-    - Accepts retrieved context and a user question.
-    - Supports both standard and streaming responses.
     """
 
     def __init__(
