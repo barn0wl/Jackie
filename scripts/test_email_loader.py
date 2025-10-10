@@ -3,7 +3,7 @@
 import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from app.ingestion.email_loader import MicrosoftEmailLoader
+from app.ingestion.microsoft_email_loader import MicrosoftEmailLoader
 
 def main():
     loader = MicrosoftEmailLoader(
