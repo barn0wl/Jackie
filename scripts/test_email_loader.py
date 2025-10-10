@@ -1,11 +1,15 @@
 # scripts/test_email_loader.py
+
+import os, sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 from app.ingestion.email_loader import MicrosoftEmailLoader
 
 def main():
     loader = MicrosoftEmailLoader(
-        client_id="YOUR_AZURE_APP_ID",
-        client_secret="YOUR_SECRET",
-        tenant_id="YOUR_TENANT_ID",
+        client_id=None,  # Not needed for personal account
+        client_secret=None,
+        tenant_id=None,
         folder_name="Inbox",
         max_emails=5,
     )
