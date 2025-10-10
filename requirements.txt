@@ -73,6 +73,7 @@ mypy_extensions==1.1.0
 narwhals==2.7.0
 networkx==3.5
 numpy==2.3.3
+o365==2.1.7
 oauthlib==3.3.1
 ollama==0.6.0
 onnxruntime==1.23.0
@@ -143,6 +144,7 @@ typing-inspect==0.9.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2025.2
+tzlocal==5.3.1
 urllib3==2.3.0
 uvicorn==0.37.0
 watchdog==6.0.0
