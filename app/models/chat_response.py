@@ -16,7 +16,7 @@ class ChatResponse(BaseModel):
     )
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "answer": "Refunds are processed within 30 days of purchase.",
                 "sources": [

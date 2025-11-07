@@ -7,7 +7,7 @@ class ChatRequest(BaseModel):
     query: str = Field(..., description="The user's natural language question or message.")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "query": "What is our refund policy?"
             }

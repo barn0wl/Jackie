@@ -4,6 +4,8 @@ import logging
 from app.core.ms_config import settings
 from app.ingestion.email_loader.microsoft_email_loader import MicrosoftEmailLoader
 from app.ingestion.email_loader.mock_email_loader import MockEmailLoader
+from app.ingestion.email_loader.base_email_loader import BaseEmailLoader
+
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +16,7 @@ class EmailLoaderFactory:
     """
 
     @staticmethod
-    def create_loader() -> object:
+    def create_loader() -> BaseEmailLoader:
         provider = getattr(settings, "EMAIL_PROVIDER", "mock").lower()
 
         logger.info(f"📬 Initialisation du chargeur d’e-mails : provider = '{provider}'")
