@@ -1,110 +1,90 @@
-# app/ingestion/email_loader.py
-
 import logging
-from typing import List, Dict
+from typing import Dict, List, Optional
 
-from O365 import Account, FileSystemTokenBackend
+import requests
+from requests import Response
+
 from app.core.ms_config import settings
 from app.ingestion.email_loader.base_email_loader import BaseEmailLoader
+from auth.msal_device_auth import MSALDeviceAuthManager
 
 logger = logging.getLogger(__name__)
 
+
 class MicrosoftEmailLoader(BaseEmailLoader):
     """
-    Production loader for Microsoft 365 / Outlook emails using the O365 SDK.
-    
-    REQUIREMENTS:
-    - Azure AD registered application
-    - Client ID, Client Secret, and Tenant ID
-    - Mail.Read permissions granted
-    - Proper admin consent
+    Email loader using Microsoft Graph + MSAL device code flow (public client).
+
+    - Pas de client secret ni redirect URI.
+    - Utilise MSALDeviceAuthManager pour obtenir un jeton d'accès Graph.
+    - Récupère les derniers e-mails de la mailbox de l'utilisateur connecté.
     """
-    
+
     def __init__(
         self,
-        client_id: str,
-        client_secret: str,
-        tenant_id: str,
-        token_path: str = settings.TOKEN_PATH,
-        token_filename: str = settings.TOKEN_FILENAME,
-        folder_name: str = "Inbox",
-        max_emails: int = 50,
-    ):
-        if not client_id or not client_secret or not tenant_id:
-            raise ValueError("MicrosoftEmailLoader requires client_id, client_secret, and tenant_id for enterprise authentication")
-        
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.tenant_id = tenant_id
-        self.folder_name = folder_name
+        auth_manager: Optional[MSALDeviceAuthManager] = None,
+        *,
+        max_emails: int = 20,
+    ) -> None:
+        self.auth_manager = auth_manager or MSALDeviceAuthManager(
+            client_id=settings.CLIENT_ID,
+            tenant_id=settings.TENANT_ID,
+            token_path=settings.TOKEN_PATH,
+            token_filename=settings.TOKEN_FILENAME,
+        )
         self.max_emails = max_emails
 
-        self.token_backend = FileSystemTokenBackend(
-            token_path=token_path,
-            token_filename=token_filename,
-        )
-
-        # Initialize Account with enterprise credentials
-        self.credentials = (self.client_id, self.client_secret)
-        self.account = Account(
-            credentials=self.credentials,
-            token_backend=self.token_backend,
-            tenant_id=self.tenant_id,
-        )
-
-        logger.info(f"✅ Initialized MicrosoftEmailLoader for folder '{folder_name}'")
-        logger.info("🔐 Authentication: Enterprise Azure AD flow")
-
-    def authenticate(self):
-        """Authenticate to Microsoft Graph using enterprise authorization flow."""
-        if not self.account.is_authenticated:
-            logger.info("🔐 Authenticating to Microsoft 365 (Enterprise)...")
-
-            scopes = ["basic", "mailbox", "mail.read"]
-            success = self.account.authenticate(scopes=scopes, auth_flow_type="authorization")
-
-            if success:
-                logger.info("✅ Enterprise authentication successful; token cached.")
-            else:
-                logger.error("❌ Enterprise authentication failed.")
-                raise Exception("Microsoft 365 authentication failed")
-        else:
-            logger.info("🔑 Using cached Microsoft 365 token.")
+    def authenticate(self) -> str:
+        """Return a valid Graph access token (device flow if needed)."""
+        return self.auth_manager.get_access_token()
 
     def load_emails(self) -> List[Dict]:
-        """Fetch emails from Outlook and return structured dictionaries."""
-        self.authenticate()
-        mailbox = self.account.mailbox()
+        """Fetch emails from Microsoft Graph and return structured dictionaries."""
+        def _call_graph_with_token(token: str) -> Response:
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+            }
+            params = {
+                "$top": self.max_emails,
+                "$select": "id,subject,body,from,receivedDateTime",
+                "$orderby": "receivedDateTime DESC",
+            }
+            return requests.get(
+                "https://graph.microsoft.com/v1.0/me/messages",
+                headers=headers,
+                params=params,
+            )
+
+        token = self.authenticate()
+        resp = _call_graph_with_token(token)
+        if resp.status_code == 401:
+            logger.warning("Access token expired or invalid. Re-authentication required.")
+            raise RuntimeError("reauth_required")
 
         try:
-            folder = mailbox.get_folder(folder_name=self.folder_name)
-        except Exception:
-            logger.warning(f"⚠️ Folder '{self.folder_name}' not found. Using Inbox instead.")
-            folder = mailbox.inbox_folder()
+            resp.raise_for_status()
+        except Exception as exc:
+            logger.error("Graph API call failed: %s", resp.text)
+            raise exc
 
-        if folder is None:
-            logger.error(f"❌ Unable to open folder '{self.folder_name}'.")
-            return []
-
-        messages = folder.get_messages(limit=self.max_emails, download_attachments=False)
+        data = resp.json()
+        items = data.get("value", []) if isinstance(data, dict) else []
 
         emails: List[Dict] = []
-        for msg in messages:
-            try:
-                emails.append(
-                    {
-                        "id": msg.object_id,
-                        "subject": msg.subject or "",
-                        "sender": getattr(msg.sender, "address", "") if msg.sender else "",
-                        "date": msg.received,
-                        "body": msg.body or "",
-                    }
-                )
-            except Exception as e:
-                logger.exception(f"⚠️ Failed to parse message: {e}")
+        for item in items:
+            emails.append(
+                {
+                    "id": item.get("id", ""),
+                    "subject": item.get("subject") or "",
+                    "sender": (item.get("from", {}) or {}).get("emailAddress", {}).get("address", ""),
+                    "date": item.get("receivedDateTime", ""),
+                    "body": (item.get("body") or {}).get("content", "") or "",
+                }
+            )
 
-        logger.info(f"📨 Loaded {len(emails)} emails from '{self.folder_name}'")
+        logger.info("Loaded %d emails via Graph.", len(emails))
         return emails
-    
+
     def get_source_name(self) -> str:
         return "outlook_email"

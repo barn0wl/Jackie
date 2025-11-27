@@ -1,205 +1,214 @@
 import logging
 import re
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional, Tuple
+
 from app.ingestion.text_cleaner.base_text_cleaner import BaseTextCleaner
 
 logger = logging.getLogger(__name__)
 
+
 class EmailTextCleaner(BaseTextCleaner):
     """
-    Specialized text cleaner for email content.
-    
-    Removes common email noise while preserving essential information:
-    - Greetings and closings
-    - Email signatures
-    - Quoted/forwarded content markers
-    - Thread artifacts
-    - Disclaimers
-    - HTML remnants
+    Nettoie les e-mails :
+    - supprime le HTML (tags, styles, scripts, commentaires)
+    - coupe l'historique cité
+    - retire salutations / closings / signatures
+    - retire disclaimers
+    - remonte A/Cc en en-tête synthétique (sans réafficher l'expéditeur)
     """
-    
+
     def __init__(
         self,
         remove_greetings: bool = True,
         remove_signatures: bool = True,
         remove_quoted_text: bool = True,
         remove_disclaimers: bool = True,
-        preserve_metadata_section: bool = False,
-    ):
-        """
-        Initialize the email cleaner with configurable options.
-        
-        Args:
-            remove_greetings: Remove common greetings (Bonjour, Hello, etc.)
-            remove_signatures: Remove email signatures
-            remove_quoted_text: Remove quoted/forwarded email content
-            remove_disclaimers: Remove legal disclaimers
-            preserve_metadata_section: Keep "From/To/Date" metadata blocks
-        """
+    ) -> None:
         self.remove_greetings = remove_greetings
         self.remove_signatures = remove_signatures
         self.remove_quoted_text = remove_quoted_text
         self.remove_disclaimers = remove_disclaimers
-        self.preserve_metadata_section = preserve_metadata_section
-        
-        # Compile regex patterns for better performance
         self._compile_patterns()
-    
-    def _compile_patterns(self):
-        """Precompile all regex patterns used in cleaning."""
-        
-        # French & English greetings (case-insensitive)
+
+    def _compile_patterns(self) -> None:
         self.greeting_patterns = [
-            re.compile(r'^(bonjour|bonsoir|salut|hello|hi|hey|dear|cher|chère)[\s,].*?[,.\n]', re.IGNORECASE | re.MULTILINE),
-            re.compile(r'^(madame|monsieur|mesdames|messieurs)[\s,].*?[,.\n]', re.IGNORECASE | re.MULTILINE),
+            re.compile(r"^(bonjour|salut|hello|hi|hey|dear|cher|chere)[\s,].*$", re.IGNORECASE),
+            re.compile(r"^(madame|monsieur)[\s,].*$", re.IGNORECASE),
         ]
-        
-        # Common closings
-        self.closing_patterns = [
-            re.compile(r'(cordialement|bien à vous|sincèrement|respectueusement|amicalement)[\s,].*$', re.IGNORECASE | re.DOTALL),
-            re.compile(r'(regards|best regards|sincerely|yours truly|cheers|thanks)[\s,].*$', re.IGNORECASE | re.DOTALL),
-            re.compile(r'(merci|thank you|thanks)[\s,].*$', re.IGNORECASE | re.DOTALL),
+        self.closing_keywords = [
+            "cordialement",
+            "bien a vous",
+            "sincerement",
+            "respectueusement",
+            "amicalement",
+            "best regards",
+            "regards",
         ]
-        
-        # Signature markers
-        self.signature_patterns = [
-            re.compile(r'\n[-_]{2,}\n.*$', re.DOTALL),  # Lines starting with -- or __
-            re.compile(r'\nEnvoyé depuis.*$', re.IGNORECASE | re.DOTALL),
-            re.compile(r'\nSent from.*$', re.IGNORECASE | re.DOTALL),
-            re.compile(r'\n(Téléphone|Phone|Mobile|Email|Tél)[\s:]+[\d\w@.+-]+.*$', re.IGNORECASE | re.DOTALL),
+        self.signature_markers = [
+            re.compile(r"^--+$"),
+            re.compile(r"^__+$"),
+            re.compile(r"^Sent from my .*", re.IGNORECASE),
         ]
-        
-        # Quoted/forwarded text markers
-        self.quoted_patterns = [
-            re.compile(r'\n[\s]*>+.*$', re.DOTALL),  # Lines starting with >
-            re.compile(r'\n(Le|On)[\s\d/:-]+,.*?a écrit\s*:.*$', re.IGNORECASE | re.DOTALL),
-            re.compile(r'\n(From|De|À|To|Sent|Date|Subject|Objet)\s*:.*$', re.IGNORECASE | re.DOTALL),
-            re.compile(r'\n[-]{3,}\s*(Message transféré|Forwarded message).*$', re.IGNORECASE | re.DOTALL),
+        self.signature_clue_patterns = [
+            re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+", re.IGNORECASE),
+            re.compile(r"\+?\d[\d\s().-]{6,}"),  # téléphone
+            re.compile(r"\bwww\.", re.IGNORECASE),
+            re.compile(r"\bassistant\b|\bcomptable\b|\bdirection\b|\btransport", re.IGNORECASE),
         ]
-        
-        # Disclaimers
+        self.quoted_markers = [
+            re.compile(r"^>"),
+            re.compile(r"^On .*wrote:$", re.IGNORECASE),
+            re.compile(r"^-{3,}\s*(Forwarded message|Message transfere)", re.IGNORECASE),
+            re.compile(r"^-----Original Message-----", re.IGNORECASE),
+        ]
         self.disclaimer_patterns = [
-            re.compile(r'(Ce message|This email).{0,50}(confidentiel|confidential).*$', re.IGNORECASE | re.DOTALL),
-            re.compile(r'(Avertissement|Disclaimer|Confidentiality notice)[\s:]+.*$', re.IGNORECASE | re.DOTALL),
-            re.compile(r'(P\s*)?Pensez à l\'environnement.*$', re.IGNORECASE | re.DOTALL),
+            re.compile(r"(confidentiel|confidential).*", re.IGNORECASE),
+            re.compile(r"(avertissement|disclaimer|confidentiality notice).*", re.IGNORECASE),
+            re.compile(r"pensez\s*a l'environnement.*", re.IGNORECASE),
         ]
-    
+
     def clean(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> str:
-        """
-        Clean email text by removing noise while preserving essential content.
-        
-        Args:
-            text: Raw email body text
-            metadata: Email metadata (subject, sender, date) - can inform cleaning
-            
-        Returns:
-            Cleaned email text ready for chunking
-        """
         if not text or not text.strip():
             logger.warning("Empty text provided to EmailTextCleaner")
             return ""
-        
-        original_length = len(text)
-        logger.debug(f"Cleaning email text (original length: {original_length} chars)")
-        
-        # Step 1: Remove HTML artifacts if present
-        text = self._remove_html_artifacts(text)
-        
-        # Step 2: Remove quoted/forwarded content first (most noise)
+
+        text = self._html_to_text(text)
+        lines = [line.strip() for line in text.splitlines()]
+
+        to_value, cc_value, lines = self._extract_recipients(lines)
+
         if self.remove_quoted_text:
-            text = self._remove_quoted_content(text)
-        
-        # Step 3: Remove disclaimers
-        if self.remove_disclaimers:
-            text = self._remove_disclaimers(text)
-        
-        # Step 4: Remove signatures
-        if self.remove_signatures:
-            text = self._remove_signatures(text)
-        
-        # Step 5: Remove greetings and closings
+            lines = self._remove_quoted_history(lines)
+
         if self.remove_greetings:
-            text = self._remove_greetings_and_closings(text)
-        
-        # Step 6: Normalize whitespace and special characters
-        text = self._remove_excessive_special_chars(text)
-        text = self._normalize_whitespace(text)
-        
-        # Step 7: Remove very short lines that are likely noise
-        text = self._remove_short_noise_lines(text)
-        
-        final_length = len(text)
-        reduction = 100 * (1 - final_length / original_length) if original_length > 0 else 0
-        logger.debug(f"Cleaned email text (final length: {final_length} chars, {reduction:.1f}% reduction)")
-        
-        return text
-    
-    def _remove_html_artifacts(self, text: str) -> str:
-        """Remove common HTML artifacts that might remain after HTML parsing."""
-        text = re.sub(r'<[^>]+>', '', text)  # Remove any remaining HTML tags
-        text = re.sub(r'&[a-z]+;', ' ', text)  # Remove HTML entities
-        text = re.sub(r'\[cid:.*?\]', '', text)  # Remove inline image references
-        return text
-    
-    def _remove_quoted_content(self, text: str) -> str:
-        """Remove quoted/forwarded email content."""
-        for pattern in self.quoted_patterns:
-            match = pattern.search(text)
-            if match:
-                # Cut off everything from the quote marker onward
-                text = text[:match.start()].strip()
-        return text
-    
-    def _remove_disclaimers(self, text: str) -> str:
-        """Remove legal disclaimers and confidentiality notices."""
-        for pattern in self.disclaimer_patterns:
-            text = pattern.sub('', text)
-        return text
-    
-    def _remove_signatures(self, text: str) -> str:
-        """Remove email signatures."""
-        for pattern in self.signature_patterns:
-            match = pattern.search(text)
-            if match:
-                text = text[:match.start()].strip()
-        return text
-    
-    def _remove_greetings_and_closings(self, text: str) -> str:
-        """Remove common greetings at start and closings at end."""
-        # Remove greetings from the beginning
-        for pattern in self.greeting_patterns:
-            text = pattern.sub('', text, count=1)
-        
-        # Remove closings from the end
-        for pattern in self.closing_patterns:
-            text = pattern.sub('', text)
-        
-        return text
-    
-    def _remove_short_noise_lines(self, text: str, min_length: int = 15) -> str:
-        """
-        Remove very short lines that are likely noise.
-        
-        Args:
-            text: Text to clean
-            min_length: Minimum line length to keep (default: 15 chars)
-            
-        Returns:
-            Text with short noise lines removed
-        """
-        lines = text.split('\n')
-        meaningful_lines = []
-        
+            lines = self._strip_greetings(lines)
+        if self.remove_signatures:
+            lines = self._strip_signature_block(lines)
+
+        if self.remove_disclaimers:
+            lines = self._strip_disclaimers(lines)
+
+        lines = self._filter_noise_lines(lines, min_length=5)
+
+        header_parts = []
+        if to_value:
+            header_parts.append(f"A: {to_value}")
+        if cc_value:
+            header_parts.append(f"Cc: {cc_value}")
+
+        content_lines = header_parts + [""] + lines if header_parts else lines
+        cleaned = "\n".join(content_lines)
+        cleaned = self._remove_excessive_special_chars(cleaned)
+        cleaned = self._normalize_whitespace(cleaned)
+        return cleaned
+
+    # ------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------ #
+    def _html_to_text(self, text: str) -> str:
+        lowered = text.lower()
+        looks_html = any(tag in lowered for tag in ("<html", "<body", "<p", "<br", "<div"))
+        if not looks_html:
+            return text
+        try:
+            from bs4 import BeautifulSoup  # type: ignore
+        except Exception:
+            # Fallback regex
+            text = re.sub(r"<!--.*?-->", " ", text, flags=re.DOTALL)
+            text = re.sub(r"(?i)<(script|style).*?>.*?</\1>", " ", text, flags=re.DOTALL)
+            text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+            text = re.sub(r"(?i)</p\s*>", "\n", text)
+            text = re.sub(r"<[^>]+>", " ", text)
+            return text
+
+        soup = BeautifulSoup(text, "html.parser")
+        for tag in soup(["script", "style", "head"]):
+            tag.decompose()
+        for br in soup.find_all(["br", "p", "li", "div"]):
+            br.insert_before("\n")
+        text_out = soup.get_text()
+        text_out = re.sub(r"<!--.*?-->", " ", text_out, flags=re.DOTALL)
+        text_out = re.sub(r"@font-face[^\n]+", " ", text_out, flags=re.IGNORECASE)
+        text_out = re.sub(r"\{[^}]*\}", " ", text_out)
+        text_out = re.sub(r"(?i)mso\w+[^\n]*", " ", text_out)
+        text_out = re.sub(r"(?i)wordsection\d*[^\n]*", " ", text_out)
+        return text_out
+
+    def _remove_quoted_history(self, lines: list[str]) -> list[str]:
+        cleaned = []
+        for line in lines:
+            if any(pat.search(line) for pat in self.quoted_markers):
+                break
+            if line.startswith(">"):
+                continue
+            cleaned.append(line)
+        return cleaned
+
+    def _strip_greetings(self, lines: list[str]) -> list[str]:
+        idx = 0
+        while idx < len(lines) and not lines[idx]:
+            idx += 1
+        if idx < len(lines) and any(pat.search(lines[idx]) for pat in self.greeting_patterns):
+            idx += 1
+            while idx < len(lines) and not lines[idx]:
+                idx += 1
+        return lines[idx:]
+
+    def _strip_signature_block(self, lines: list[str]) -> list[str]:
+        end = len(lines)
+        for i in range(len(lines) - 1, -1, -1):
+            line = lines[i]
+            low = line.lower()
+            if any(kw in low for kw in self.closing_keywords):
+                end = i
+                break
+            if any(pat.search(line) for pat in self.signature_markers):
+                end = i
+                break
+            if any(pat.search(line) for pat in self.signature_clue_patterns):
+                end = i
+                break
+        return lines[:end]
+
+    def _strip_disclaimers(self, lines: list[str]) -> list[str]:
+        out = []
+        for line in lines:
+            if any(pat.search(line) for pat in self.disclaimer_patterns):
+                break
+            out.append(line)
+        return out
+
+    def _filter_noise_lines(self, lines: list[str], min_length: int = 5) -> list[str]:
+        out = []
         for line in lines:
             stripped = line.strip()
-            # Keep lines that are either:
-            # - Long enough (likely meaningful)
-            # - Empty (preserve paragraph breaks)
-            if len(stripped) >= min_length or len(stripped) == 0:
-                meaningful_lines.append(line)
-        
-        return '\n'.join(meaningful_lines)
-    
+            if stripped == "":
+                out.append("")
+            elif len(stripped) >= min_length:
+                out.append(stripped)
+        while out and out[0] == "":
+            out.pop(0)
+        while out and out[-1] == "":
+            out.pop()
+        return out
+
+    def _extract_recipients(self, lines: list[str]) -> Tuple[str, str, list[str]]:
+        to_value = ""
+        cc_value = ""
+        remaining = []
+        to_re = re.compile(r"^(a|à|to)\s*:", re.IGNORECASE)
+        cc_re = re.compile(r"^(cc|c\.c\.)\s*:", re.IGNORECASE)
+
+        for line in lines:
+            if to_value == "" and to_re.match(line):
+                to_value = to_re.sub("", line).strip(" :\t")
+                continue
+            if cc_value == "" and cc_re.match(line):
+                cc_value = cc_re.sub("", line).strip(" :\t")
+                continue
+            remaining.append(line)
+
+        return to_value, cc_value, remaining
+
     def get_cleaner_name(self) -> str:
-        """Return the name of this cleaner."""
-        return "email_cleaner"
+        return "email-text-cleaner"
