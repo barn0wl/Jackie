@@ -30,7 +30,6 @@ class MicrosoftEmailLoader(BaseEmailLoader):
             client_id=settings.CLIENT_ID,
             tenant_id=settings.TENANT_ID,
             token_path=settings.TOKEN_PATH,
-            token_filename=settings.TOKEN_FILENAME,
         )
         self.max_emails = max_emails
 
