@@ -41,7 +41,7 @@ class DocumentChunk(BaseModel):
     )
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "id": "chunk_12345",
                 "content": "The meeting is scheduled for Friday at 10am.",
