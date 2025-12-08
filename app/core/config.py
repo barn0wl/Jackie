@@ -21,5 +21,9 @@ class Settings:
     # Chunking
     CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 800))
     CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 100))
+    CHUNKER_TYPE = os.getenv("CHUNKER_TYPE", "recursive")
+
+    # Ingestion settings
+    BATCH_INGESTION_SIZE = int(os.getenv("BATCH_INGESTION_SIZE", 50))
 
 settings = Settings()
