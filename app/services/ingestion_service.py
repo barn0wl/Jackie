@@ -20,7 +20,9 @@ class IngestionService:
     def __init__(
         self,
         chunker_type: Optional[str] = None,
-        embedding_model: Optional[str] = None
+        embedding_model: Optional[str] = None,
+        use_text_cleaning: bool = True,
+        text_cleaner_kwargs: Optional[Dict[str, Any]] = None
     ):
         """
         Initialize the ingestion service.
@@ -28,14 +30,22 @@ class IngestionService:
         Args:
             chunker_type: Type of chunker to use
             embedding_model: Name of the embedding model to use
+            use_text_cleaning: Whether to clean text before chunking
+            text_cleaner_kwargs: Additional parameters for text cleaner
         """
         self.chunker = ChunkerFactory.create(chunker_type)
         self.embedder = EmbeddingsService(model_name=embedding_model)
         self.vector_store = get_vector_store()
+        self.use_text_cleaning = use_text_cleaning
+        
+        # Initialize text cleaner if needed
+        if self.use_text_cleaning:
+            from app.services.text_cleaner_service import TextCleanerService
+            self.text_cleaner = TextCleanerService(**(text_cleaner_kwargs or {}))
         
         logger.info(
             f"IngestionService initialized with chunker={type(self.chunker).__name__}, "
-            f"embedder={self.embedder.model_name}"
+            f"embedder={self.embedder.model_name}, text_cleaning={use_text_cleaning}"
         )
     
     def ingest_text(
@@ -69,6 +79,15 @@ class IngestionService:
             full_metadata["source_type"] = source_type
         
         logger.info(f"Ingesting text from source: {source_id or 'unknown'}")
+        
+        # Clean text before chunking
+        if self.use_text_cleaning:
+            logger.debug("Cleaning text before chunking...")
+            text = self.text_cleaner.clean_for_chunking(
+                text=text,
+                metadata=full_metadata
+            )
+            logger.debug(f"Text cleaned (length: {len(text)} chars)")
         
         # Step 1: Chunk the text
         chunks = self.chunker.chunk_document(text, full_metadata)

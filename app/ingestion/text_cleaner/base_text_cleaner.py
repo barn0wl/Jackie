@@ -1,6 +1,7 @@
+# app/ingestion/text_cleaner/base_text_cleaner.py
+
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -8,36 +9,29 @@ logger = logging.getLogger(__name__)
 
 class BaseTextCleaner(ABC):
     """
-    Abstract base class for text cleaning strategies.
-    Defines the interface that all text cleaners must implement.
-    
-    Each cleaner is responsible for:
-    - Removing noise (greetings, signatures, disclaimers, etc.)
-    - Normalizing whitespace and formatting
-    - Preserving essential information
-    - Returning cleaned text ready for chunking/embedding
+    Abstract base class for all text cleaners.
+    Each cleaner must implement the clean() method.
     """
-    
+
     @abstractmethod
     def clean(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         """
-        Clean and normalize raw text content.
+        Clean and normalize text content.
         
         Args:
             text: Raw text content to clean
             metadata: Optional metadata that might inform cleaning strategy
-                     (e.g., source type, sender, date)
-        
+                    (e.g., source type, sender, date, language)
+                    
         Returns:
             Cleaned text ready for further processing
         """
         pass
     
-    @abstractmethod
     def get_cleaner_name(self) -> str:
         """Return the name/type of this cleaner for logging purposes."""
-        pass
-    
+        return self.__class__.__name__.replace("TextCleaner", "").lower()
+
     def _normalize_whitespace(self, text: str) -> str:
         """
         Common utility: normalize excessive whitespace while preserving structure.
@@ -56,7 +50,7 @@ class BaseTextCleaner(ABC):
         # Remove trailing/leading whitespace from each line
         lines = [line.strip() for line in text.split('\n')]
         return '\n'.join(lines).strip()
-    
+
     def _remove_excessive_special_chars(self, text: str) -> str:
         """
         Remove excessive special characters that add no semantic value.
@@ -68,18 +62,9 @@ class BaseTextCleaner(ABC):
             Text with reduced special character noise
         """
         import re
-        # Remove excessive dashes, underscores, equals signs (often used as separators)
+        # Remove excessive dashes, underscores, equals signs
         text = re.sub(r'[-_=]{3,}', '', text)
         # Remove non-breaking spaces and other unicode whitespace
         text = text.replace('\xa0', ' ')
         text = text.replace('\u200b', '')  # Zero-width space
         return text
-    
-
-
-@dataclass
-class CleaningContext:
-        metadata: Dict[str, Any] = field(default_factory=dict)
-
-class TextCleaningError(ValueError):
-        """Raised when a cleaner receives unsupported input."""

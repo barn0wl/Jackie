@@ -25,7 +25,7 @@ Usage:
 from app.ingestion.text_cleaner.base_text_cleaner import BaseTextCleaner
 from app.ingestion.text_cleaner.email_text_cleaner import EmailTextCleaner
 from app.ingestion.text_cleaner.document_text_cleaner import DocumentTextCleaner
-from app.ingestion.text_cleaner.text_cleaner_factory import TextCleanerFactory, TextCleanerType
+from app.ingestion.text_cleaner.factory import TextCleanerFactory, TextCleanerType
 
 __all__ = [
     "BaseTextCleaner",
